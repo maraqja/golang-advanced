@@ -3,29 +3,28 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"time"
 )
 
 func main() {
-	code := make(chan int) // канал для передачи кода ответа
+	code := make(chan string) // канал для передачи кода ответа
 
-	go getHttp(code) // передаем канал в горутину
+	for i := 0; i < 10; i++ {
+		go getHttp(code, i)
+	}
 
-	statusCode := <-code //  Читаем из канала в переменную
-	// функция main блокируется до появления в канале хотя бы одного значения (тк функция main запускается в горутине)
-	fmt.Printf("StatusCode: %v\n", statusCode)
+	for res := range code {
+		fmt.Printf("StatusCode: %v\n", res) // получаем все коды из канала (они там будут в рандом порядке, тк какя раньше выполнилась, та раньше и записала результат)
+	}
+
 }
 
-func getHttp(codeCh chan int) { // принимаем канал для записи
-
-	t := time.Now()
+func getHttp(codeCh chan string, iteration int) { // принимаем канал для записи
 
 	resp, err := http.Get("https://google.com")
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
-	fmt.Println(time.Since(t)) // смотрим сколько времени прошло
 
-	codeCh <- resp.StatusCode // кладем в канал StatusCode
+	codeCh <- fmt.Sprintf("[%d] %d", iteration, resp.StatusCode) // кладем в канал StatusCode
 }
