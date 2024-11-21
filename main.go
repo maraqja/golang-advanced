@@ -2,45 +2,51 @@ package main
 
 import (
 	"fmt"
-	"net/http"
-	"sync"
+	"math"
 )
 
-// За счет WG контролим, что определенное нужное нам кол-во горитун выполнилось
-// За счет каналов обеспечиваем коммуникацию горутин (вложенная функция с вызывающей)
 func main() {
+	// нужно распаралеллить сложение элементов массива
+	arr := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20}
+	numGoroutines := 3
 
-	var wg sync.WaitGroup
-	code := make(chan string) // канал для передачи кода ответа
+	sumCh := make(chan int, numGoroutines)                                            // буферизированный канал - чтобы не ждать
+	var partialArrLength = int(math.Ceil(float64(len(arr)) / float64(numGoroutines))) // длина массива для каждой горутины
+	arrays := splitArray(arr, partialArrLength)
 
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			getHttp(code, i)
-			wg.Done()
-		}()
+	for _, partialArr := range arrays {
+
+		go partialSum(partialArr, sumCh)
 	}
 
-	// В рамках этой горутины ждем, когда все горутины завершатся (когда счетчик waitgroup станет 0) и закрываем канал для завершения горутины main
-	go func() {
-		wg.Wait()
-		close(code) // Закрываем канал, что приведет к завершению range цикла ниже
-	}()
+	totalSum := 0
 
-	// В рамках этого цикла бесконечно получаем новые значения из канала
-	for res := range code {
-		fmt.Printf("StatusCode: %v\n", res) // получаем все коды из канала (они там будут в рандом порядке, тк какя раньше выполнилась, та раньше и записала результат)
+	for i := 0; i < numGoroutines; i++ { // заранее знаем сколько ждать ответов, можно за счет этого не использовать waitgroup
+		totalSum += <-sumCh
 	}
+
+	fmt.Println(totalSum)
 
 }
+func splitArray(array []int, size int) [][]int {
+	var result [][]int
 
-func getHttp(codeCh chan string, iteration int) { // принимаем канал для записи
-
-	resp, err := http.Get("https://google.com")
-	if err != nil {
-		fmt.Println(err)
-		return
+	for i := 0; i < len(array); i += size {
+		end := i + size
+		if end > len(array) {
+			end = len(array)
+		}
+		result = append(result, array[i:end])
 	}
 
-	codeCh <- fmt.Sprintf("[%d] %d", iteration, resp.StatusCode) // кладем в канал StatusCode
+	return result
+}
+
+func partialSum(partialArr []int, ch chan int) {
+	fmt.Println(partialArr)
+	sum := 0
+	for _, el := range partialArr {
+		sum += el
+	}
+	ch <- sum
 }
