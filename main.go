@@ -1,52 +1,65 @@
 package main
 
 import (
+	"flag"
 	"fmt"
-	"math"
+	"net/http"
+	"os"
+	"strings"
 )
 
+// пингуем урлы из списка url.txt
 func main() {
-	// нужно распаралеллить сложение элементов массива
-	arr := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20}
-	numGoroutines := 3
+	path := flag.String("file", "url.txt", "path to file") // 2 значение - дефолтное название файла
 
-	sumCh := make(chan int, numGoroutines)                                            // буферизированный канал - чтобы не ждать
-	var partialArrLength = int(math.Ceil(float64(len(arr)) / float64(numGoroutines))) // длина массива для каждой горутины
-	arrays := splitArray(arr, partialArrLength)
+	flag.Parse()
 
-	for _, partialArr := range arrays {
+	file, err := os.ReadFile(*path)
 
-		go partialSum(partialArr, sumCh)
+	if err != nil {
+		panic(err.Error())
 	}
 
-	totalSum := 0
+	urlSlice := strings.Split(string(file), "\n") // получаем слайс урлов для пинга
+	// далее логика для пингования
 
-	for i := 0; i < numGoroutines; i++ { // заранее знаем сколько ждать ответов, можно за счет этого не использовать waitgroup
-		totalSum += <-sumCh
+	respCh := make(chan int)  // канал для кодов
+	errCh := make(chan error) // канал для ошибок
+
+	for _, url := range urlSlice {
+		go ping(url, respCh, errCh) // запускаем горутины для каждого урла
 	}
 
-	fmt.Println(totalSum)
+	for range urlSlice { // знаем количество урлов (по размеру слайса), поэтому можно без waitgroup
+		// // НЕВЕРНЫЙ ПОДХОД - подход ниже не подходит, тк на каждой итерации будем ждать из каждого канала, хотя по сути ответ будет только от одного
+		// // 1 правильный и 1 неправильный урл, в итоге в канале с ответами будет 1 сообщение, в канале с ошибками будет 1 одно сообщение
+		// // а код ниже ожидает что по каждому урлу будет и код и ошибка, поэтому будет ждать
+		// errRes := <-errCh // получаем ошибки из канала
+		// fmt.Println(errRes)
+		// resp := <-respCh // получаем коды из канала
+		// fmt.Println(resp)package main
 
-}
-func splitArray(array []int, size int) [][]int {
-	var result [][]int
-
-	for i := 0; i < len(array); i += size {
-		end := i + size
-		if end > len(array) {
-			end = len(array)
+		// ВЕРНЫЙ ПОДХОД через SELECT:
+		// SELECT блокирует выполнение до тех пор, пока один из его case не будет готов к выполнению
+		// SELECT автоматически выберет тот канал, в который первым придет значение.
+		// Это важно, потому что для каждого URL будет либо успешный ответ, либо ошибка, но не оба значения одновременно.
+		// После обработки значения из выбранного канала, цикл переходит к следующей итерации
+		select {
+		case err := <-errCh:
+			fmt.Println(err)
+		case resp := <-respCh:
+			fmt.Println(resp)
+			// default: // если нет ничего готового, то выполнится default
 		}
-		result = append(result, array[i:end])
 	}
-
-	return result
 }
 
-func partialSum(partialArr []int, ch chan int) {
-	fmt.Println(partialArr)
-	sum := 0
-	for _, el := range partialArr {
-		sum += el
+func ping(url string, respCh chan int, errCh chan error) { // для ошибок отдельный канал указываем
+	res, err := http.Get(url)
+	if err != nil {
+		errCh <- err // записываем ошибку в канал с ошибками
+		return
 	}
-	ch <- sum
+
+	respCh <- res.StatusCode // записываем статус в канал с кодом
 }
